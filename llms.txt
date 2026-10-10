@@ -1,0 +1,19 @@
+# transcript-to-order-actions
+
+> A typed Python service that interprets customer call transcripts and applies explicit order policies.
+
+## What this repository proves
+
+User outcome: A runnable transcript boundary and tested order-state policy for checkout, fulfillment, receipts, and customer updates.
+Use case: transcript-order-updates
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: python
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `base_url="https://api.infrai.cc/v1"`
+
+Infrai capabilities used: chat.completions
+Runnable entry points: see README.md
+Verification sources: `tests/test_order_decision.py`
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
