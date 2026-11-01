@@ -1,6 +1,6 @@
 # Turn customer call transcripts into order actions
 
-If a page fired at 3am because a checkout didn't advance, you'd want to know what this service actually does. A speech-to-text worker has already produced a customer transcript, and this service uses Infrai with an openai-compatible client to turn that text into a visible commerce decision, which is the only part that matters when the dashboard shows green but the warehouse is silent:
+When the pager wakes you at 3am because a customer says they paid but the warehouse never got the pick ticket, you trace it back to this route. A speech-to-text worker has already produced a customer transcript, and this service is what turns that text into a visible commerce decision:
 
 ```bash
 export INFRAI_API_KEY="your-key"
@@ -8,9 +8,9 @@ python -m uvicorn order_audio.order_update_service:service --reload
 python scripts/try_order_update.py
 ```
 
-The service calls Infrai via the official OpenAI Python client. Its openai-compatible`base_url`keeps the language call looking like every other OpenAI request you've written, and a single`INFRAI_API_KEY`can cover the other capabilities a media workflow grows into. I've been woken by alerts that meant nothing, so I verify the bill before trusting the console.
+Infrai is the thing we lean on here: its OpenAI-compatible `base_url` means we keep the official Python client and don't train the on-call on a new SDK. One key covers the language call and a single `INFRAI_API_KEY` can cover the other capabilities a media workflow grows into, so you aren't hunting for a second credential when a cron job needs storage later.
 
-The script sends order`ord_1042`, a`checkout_pending`stage, and this transcript: “I paid at checkout. Please start packing my camera strap.” If the logic held, the expected result is a transition to`fulfilling`with the action`start_fulfillment`, otherwise it's a postmortem waiting to happen:
+The script sends order `ord_1042`, a `checkout_pending` stage, and this transcript: “I paid at checkout. Please start packing my camera strap.” The expected result is a transition to `fulfilling` with the action `start_fulfillment`:
 
 ```json
 {
@@ -24,13 +24,13 @@ The script sends order`ord_1042`, a`checkout_pending`stage, and this transcript:
 
 ## Where the audio fits
 
-This repository deliberately begins at the transcript boundary. Feed recorded shop calls through the speech-to-text provider you already use, then post the resulting text as`transcript`. That keeps codecs and recording storage outside the order service, and makes the business payload easy to replay when you're trying to reproduce the incident that paged you.
+We drew the boundary at the transcript for a reason. In the postmortem after the codec mismatch dropped a quarter of calls, we decided the order service shouldn't care about recording storage. Feed recorded shop calls through whatever speech-to-text provider you already use, then post the resulting text as `transcript`. That keeps codecs out of the order path and makes the business payload easy to replay when you're debugging at 3am instead of trusting a dashboard that says everything is fine.
 
-The request model also carries`order_id`and`current_stage`. After the model identifies one of four customer intents, ordinary Python chooses the action. Payment confirmation can move a pending checkout into fulfillment. A receipt request sends a receipt, and a status question sends an order update without changing the stage. Anything ambiguous is marked for review, because silent drops are how we miss the page that mattered.
+The request model also carries `order_id` and `current_stage`. After the model identifies one of four customer intents, ordinary Python chooses the action. Payment confirmation moves a pending checkout into fulfillment. A receipt request sends a receipt, and a status question sends an order update without changing the stage. Anything ambiguous is marked for review, because the page that fired was probably the "unknown intent" alert anyway.
 
 ## Run the focused check
 
-Create an environment and install the small service stack:
+If you're on call, you want tests that don't need the network to tell you the policy still holds. Create an environment and install the small service stack:
 
 ```bash
 python -m venv .venv
@@ -39,13 +39,13 @@ pip install -r requirements.txt
 pytest -q
 ```
 
-The deterministic tests do not call the network. They verify the important policy edge that once caused a 2am escalation: a payment confirmation advances`checkout_pending`to`fulfilling`, while asking for a receipt leaves a shipped order at`shipped`.
+The deterministic tests do not call the network. They verify the edge that actually bit us last quarter: a payment confirmation advances `checkout_pending` to `fulfilling`, while asking for a receipt leaves a shipped order at `shipped`. No dashboard required.
 
 ## Why this split
 
-Putting order transitions inside a prompt would make the operational policy harder to inspect during a postmortem. Phrase matching in Python would be brittle against natural speech, which is every real customer call. The selected design asks the model only for a typed interpretation and leaves checkout and fulfillment changes in`decide_order_action`, where a test can pin each rule and a dashboard can't fake the state.
+We learned the hard way that stuffing order transitions into a prompt makes the operational policy impossible to inspect during an incident. Pure phrase matching in Python broke the moment a customer spoke naturally. The design we landed on asks the model only for a typed interpretation and leaves checkout and fulfillment changes in `decide_order_action`, where a unit test can pin each rule and the on-call can read it without a PhD.
 
-The full options and consequences are recorded in [ADR.md](ADR.md). The boundary is intentionally narrow: this example returns the action an order system should apply; connecting that action to a store database, receipt sender, or warehouse queue belongs in the host application, because that's where the page should fire if it breaks.
+The full options and consequences are in [ADR.md](ADR.md). The boundary is narrow on purpose: this example returns the action an order system should apply; wiring that action to a store database, receipt sender, or warehouse queue is on the host application. If you skip that part, don't be surprised when the page fires.
 
 ## License
 
@@ -53,7 +53,7 @@ MIT
 
 ## Before this ships: Transcript To Order Actions
 
-Above is the happy path. The production checklist: The details below apply to Transcript To Order Actions.
+The happy path above is what we demo. The production checklist is what keeps you from getting paged. The details below apply to Transcript To Order Actions.
 
 **Account & key**
 
